@@ -1,0 +1,326 @@
+#include <Wire.h>
+#include <ESP8266WiFi.h>
+#include <String.h>
+#include <FastLED.h>
+
+#define I2C_SDL D1
+#define I2C_SDA D2
+#define sizeOfChar 48
+//#define DATA_PIN D5
+#define LED_PIN D5
+#define NUM_LEDS 1
+void setOutputs();
+void readOutputs();
+void ledOn();
+void ledOff();
+int leesBeweging();
+void LampSetup();
+void ontvangAntwoord();
+void sendKeyValue();
+
+CRGB leds[1];
+
+unsigned int readCompareValue();
+
+const char *ssid = "hotspot laptop dcg";
+const char *password = "dcg2002H";
+const char* serverIp = "192.168.137.32"; // Vervang dit met het IP-adres van jouw server
+const int serverPort = 8080;
+
+
+unsigned int outputs=0;
+unsigned int ID = 3;
+char KeyValueLamp[] = {"String blblaalamp"};
+unsigned int brightness, rood, groen, blauw =0;
+unsigned int helderheidsniveau;
+unsigned int RGBWaarde;
+
+  WiFiClient client;
+ // char buffer[1024];
+  char antwoordbuffer[1024];
+
+void setup(void){
+  Wire.begin();
+  Serial.begin(115200);
+  wifiVerbinden();
+ // setOutputs();
+  FastLED.addLeds<WS2812, LED_PIN, GRB>(leds, NUM_LEDS);
+  //FastLED.addLeds<WS2812B, DATA_PIN, RGB>(leds, NUM_LEDS);
+  FastLED.setBrightness(1000);
+
+}
+   
+
+void loop(void){
+
+  WiFiClient client = PiConnect();
+  if(client.connected()){
+   // client.print("LAMP");
+  }
+
+  LampSetup();
+  int vorigeBeweging;
+  setOutputs();
+  //readOutputs();
+
+/*
+  char buffer[1024];
+      memset(buffer, 0, strlen(buffer));
+      sprintf(buffer,"ID: %d brightness: %d RGB %d %d %d\n",ID, brightness, rood, groen, blauw);
+    //sprintf(buffer,"ID: %s Venstber: %d LDR: %d",ID, outputs,anin0);
+      printf("Dit is de keyvalue van client: ");
+      printf(buffer);
+      client.write(buffer);
+      client.flush();
+*/
+
+  sendKeyValue();
+  client.flush();
+  //regelBrightness(300);
+//  regelRGB(255,0,255);
+  ontvangAntwoord();
+  regelLed();
+    client.stop();
+
+    /*
+    int beweging = leesBeweging();
+    
+
+    if (beweging != vorigeBeweging) {
+      if (beweging == 1) {
+        Serial.print("Beweging: ");
+        Serial.println(beweging); // print de waarde in de seriele monitor
+        client.print("lampBeweging");
+      }      
+    }
+  vorigeBeweging = beweging;
+  */ 
+
+
+
+  
+}
+
+///////////////////
+void regelRGB(int x, int y, int z){
+  for (int i = 0; i < NUM_LEDS; i++){
+    leds[i] = CRGB(x, y, z);
+    FastLED.show();
+  }  
+}
+/////////////////////
+void regelBrightness(int brightness){
+  FastLED.setBrightness(brightness);
+}
+///////////////////////
+void regelLed(){
+  if(RGBWaarde == 0){
+      regelRGB(0,0,0);
+      rood = 0;
+      groen = 0;
+      blauw =0;
+    }
+    else if(RGBWaarde == 1){
+      regelRGB(255,0,0);
+      rood = 255;
+      groen = 0;
+      blauw = 0;
+    }
+    else if(RGBWaarde == 2){
+      regelRGB(0,255,0);
+      rood = 0;
+      groen = 255;
+      blauw = 0;
+    }
+    else if(RGBWaarde == 3){
+      regelRGB(0,0,255);
+      rood = 0;
+      groen = 0;
+      blauw = 255;
+    }
+    else if(RGBWaarde == 4){
+      regelRGB(255,255,255);
+      rood = 255;
+      groen = 255;
+      blauw = 255;
+    }
+
+    regelBrightness(helderheidsniveau);
+    brightness = helderheidsniveau;
+}
+///////////
+
+void LampSetup(void){
+   //Config PCA9554
+  //Inside loop for debugging purpose (hot plugging wemos module into i/o board).
+  //IO0-IO3 as input, IO4-IO7 as output.
+  Wire.beginTransmission(0x38);
+  Wire.write(byte(0x03));
+  Wire.write(byte(0x0F));
+  Wire.endTransmission();
+
+  //Config MAX11647
+  //Inside loop for debugging purpose (hot plugging wemos module into i/o board).
+  Wire.beginTransmission(0x36);
+  Wire.write(byte(0xA2));
+  Wire.write(byte(0x03));
+  Wire.endTransmission();
+}
+
+void setOutputs(){
+  //Set PCA9554 outputs (IO44-IO7)
+  Wire.beginTransmission(0x38); 
+  Wire.write(byte(0x01));            
+  Wire.write(byte(outputs<<4));            
+  Wire.endTransmission();
+//  Serial.print("Digital out: ");
+ // Serial.println(outputs&0x0F);  
+ // outputs++;
+}
+///////////////////////
+/*
+unsigned int readCompareValue(){
+  //Read PCA9554 outputs (IO40-IO3)
+  Wire.beginTransmission(0x38); 
+  Wire.write(byte(0x00));      
+  Wire.endTransmission();
+  Wire.requestFrom(0x38, 1);   
+  return (Wire.read()&0x0F);  
+}
+*/
+//////////////////
+void readOutputs(){
+  //Read PCA9554 outputs (IO40-IO3)
+  Wire.beginTransmission(0x38); 
+  Wire.write(byte(0x00));      
+  Wire.endTransmission();
+  Wire.requestFrom(0x38, 1);   
+  unsigned int inputs = Wire.read(); 
+//  Serial.print("Digital in: ");
+ // Serial.println(inputs&0x0F);
+}
+
+// void functies
+/*
+int LeesLDR(){
+  //Read analog 10bit inputs 0&1
+  Wire.requestFrom(0x36, 4);
+  unsigned int anin0 = Wire.read() & 0x03;
+  anin0 = anin0 << 8;
+  anin0 = anin0 | Wire.read();
+  //return anin0; Dit is wanner je de data wilt zien
+
+  if(anin0 >  550){
+    KeyValueMuur[2] = '1'; // Het is licht in de kamer
+   // return 1
+   return anin0;
+  } else{
+    KeyValueMuur[2] = '0';
+    return anin0;
+  }
+}
+*/
+
+/*
+void sendMessage(){
+  
+  if (client.availableForWrite()) {
+      char buffer[1024];
+      memset(buffer, 0, strlen(buffer));
+      sprintf(buffer, "MUUR %d %d ", readAnalog(0), readAnalog(1));
+      client.write(buffer);
+    }
+}
+*/
+/*
+void ledOn(){
+   leds[0] = CRGB::Red;  // Hiermee zetten we het ledje op een bepaalde kleur
+  FastLED.show();       // Hiermee wordt de led gezegd te laten zien wat er zojuist is ingesteld. Hij gaat in dit geval dus aan
+  for (int i = 0; i < 1000; i++) {
+    int beweging = leesBeweging();
+    if (beweging == 1) {
+      delay(1000);
+      //Serial.println(i);      
+      ledOn();
+      //delay(1000);
+    }
+    delay(10);
+  }
+  //if (!brand){
+  //  ledOff();
+  //}
+  
+}
+
+
+void ledOff() {
+  Serial.println("led uit");
+  leds[0] = CRGB::Black;
+  FastLED.show();
+}
+*/
+int leesBeweging() {
+
+  Wire.beginTransmission(0x38);
+  Wire.write(byte(0x00));
+  Wire.endTransmission();
+  Wire.requestFrom(0x38, 1);
+  unsigned int inputs = Wire.read();
+  return inputs & 0x01;
+}
+/////////////////////
+void sendKeyValue(){
+  if (client.availableForWrite()) {
+      char buffer[1024];
+      memset(buffer, 0, strlen(buffer));
+     // sprintf(buffer,"ID: %d \n",ID);
+      sprintf(buffer,"ID: %d helderheidsniveau: %d RGBWaarde %d %d %d\n",ID, brightness, rood, groen,blauw);
+    //  Serial.println("Dit is id:");
+     // Serial.println(ID);
+      printf("Dit is de keyvalue van client: ");
+      printf(buffer);
+      client.write(buffer);
+      client.flush();
+    }
+}
+/////////////////////
+void ontvangAntwoord(){
+  size_t antwoord = client.readBytes(antwoordbuffer, sizeof(antwoordbuffer) -1);
+    antwoordbuffer[antwoord] = '\0';
+   // sscanf(antwoordbuffer, "%*s %d %*s %d %*s %d %*s %d", &ID, &venstercommand, &helderheidsniveau, &RGBWaarde);
+      sscanf(antwoordbuffer, "%*s %d %*s %d %*s %d", &ID, &helderheidsniveau, &RGBWaarde);
+    Serial.println("Ontvangen data antwoord:");
+    Serial.println(antwoordbuffer);
+ //     Serial.println("ID:");
+ //   Serial.println(ID);
+  //  Serial.println("Venstercommand:");
+    //Serial.println(venstercommand);
+ //   Serial.println("Helderheidsniveau:");
+   // Serial.println(helderheidsniveau);
+   // Serial.println("RGBWaarde:");
+   // Serial.println(RGBWaarde);
+}
+/////////
+
+///////////////////////
+void wifiVerbinden(){
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Verbinding maken met WiFi...");
+  }
+  Serial.println("Verbonden met WiFi");
+}
+////////////////////////////
+WiFiClient PiConnect() {  // verbinden met de pi
+  Serial.print("connecting to: ");
+  Serial.print(serverIp);
+  Serial.print(" :");
+  Serial.println(serverPort);
+
+ if (!client.connect(serverIp, serverPort)) {
+    Serial.println("connection failed");
+ 
+  }
+  return client;
+}

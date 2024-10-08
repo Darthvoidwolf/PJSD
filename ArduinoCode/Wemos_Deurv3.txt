@@ -1,0 +1,190 @@
+#include <ESP8266WiFi.h>
+#include <Wire.h>
+#include <Servo.h>
+
+#define I2C_SDL    D1
+#define I2C_SDA    D2
+
+Servo mijnServo;
+int servoPos = 0;
+int ID = 4;
+
+int LEDBuiten = 0;
+int LEDBinnen = 0;
+unsigned int DeurPositie; // 0 = dicht, 1 = openBinnen , 2 = openBuiten
+
+void sendKeyValue();
+
+void deurOpenNaarBinnen();
+void deurOpenNaarBuiten();
+void deurDicht();
+
+void configureInputOutput();
+void checkKnopBuitenIngedrukt();
+void checkKnopBinnenIngedrukt();
+
+unsigned int outputs;
+unsigned int inputs1;
+unsigned int inputs2;
+unsigned int BuitenKnopOutput = 0;
+unsigned int BinnenKnopOutput = 0;
+/*
+const char *ssid = "hotspot laptop dcg"; // vervang de naam van je hotspot
+const char *password = "dcg2002H"; // Vervang je wachtwoord van hotspot
+const char *serverIp = "192.168.137.32"; // Vervang dit met het IP-adres van jouw server
+*/
+
+const char *ssid = "1"; // vervang de naam van je hotspot
+const char *password = "programming"; // Vervang je wachtwoord van hotspot
+const char *serverIp = "192.168.137.31"; // Vervang dit met het IP-adres van jouw server
+const int serverPort = 8080;
+
+WiFiClient client;
+
+int Commando;
+char responsebuffer[1024];
+
+void setup() {
+  // Initialisatie van keyValueDeur
+  
+  
+  pinMode(D5, OUTPUT);   // Configure pin D5 as an output for controlling the MOSFET
+  mijnServo.attach(D5);
+  Wire.begin();          // Initialize the I2C communication
+  Serial.begin(115200);  // Initialize serial communication for debugging
+  
+  configureInputOutput();
+  // Maak verbinding met Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("Verbinding maken met WiFi...");
+  }
+  Serial.println("Verbonden met WiFi");
+}
+
+void loop() { 
+// Er wordt verbinding gemaakt met de server
+  if (!client.connected()) {
+    Serial.println("\nVerbinding maken met de server...");
+
+    if (client.connect(serverIp, serverPort)) {
+      Serial.println("Verbonden met de server");
+   //test
+      checkKnopBuitenIngedrukt();
+      checkKnopBinnenIngedrukt();
+      sendKeyValue();
+      client.flush();  // Zorg ervoor dat de gegevens daadwerkelijk worden verzonden
+      //delay(500); //test delay
+    } else {
+      Serial.println("Verbindingsfout. Opnieuw proberen...");
+      delay(20);
+      return;
+    }
+  }
+
+  size_t response =client.readBytes(responsebuffer, sizeof(responsebuffer) -1);
+  responsebuffer[response] ='\0';
+  sscanf(responsebuffer,"%*s %d" "%*s %d",&ID, &Commando);
+  Serial.println("Öntvangen data van responsebuffer:");
+  Serial.println("ID:");
+  Serial.println(ID);
+  Serial.println("Commando:");
+  Serial.println(Commando);
+  if(Commando == 3){
+    deurOpenNaarBinnen();
+    DeurPositie = 1; // 0 = dicht, 1 = openBinnen , 2 = openBuiten
+    //delay(2000);
+    //deurDicht();
+  }
+  else if(Commando == 4){
+  deurOpenNaarBuiten();
+  DeurPositie = 2; // 0 = dicht, 1 = openBinnen , 2 = openBuiten
+  //delay(2000);
+  //deurDicht();
+  }
+  else if(Commando == 5){
+    deurDicht();
+    DeurPositie = 0; // 0 = dicht, 1 = openBinnen , 2 = openBuiten
+  }
+
+  client.stop();
+  delay(20); // Wait for 500 milliseconds before the next iteration
+}
+
+void checkKnopBuitenIngedrukt(){
+//buitenknop
+Wire.beginTransmission(0x38);
+  Wire.write(byte(0x00)); // Specify the register address of the output you want to read
+  Wire.endTransmission();
+  Wire.requestFrom(0x38, 1); // Request one byte from the specified register address
+  inputs1 = Wire.read() & 0b00000001;
+  BuitenKnopOutput = inputs1&0x0F;
+  // kijken of knop is ingedrukt 
+  if (BuitenKnopOutput & 0b00000001) {
+    Serial.println("KnopBuiten is ingedrukt!");
+  }
+}
+
+void checkKnopBinnenIngedrukt(){
+    //binnenkop
+  Wire.beginTransmission(0x38);
+  Wire.write(byte(0x00)); // Specify the register address of the output you want to read
+  Wire.endTransmission();
+  Wire.requestFrom(0x38, 1); // Request one byte from the specified register address
+  inputs2 = Wire.read() & 0b00000010 ;
+  BinnenKnopOutput = inputs2&0x0F;
+  //kijken of binnenknop is ingedrukt
+  if (BinnenKnopOutput & 0b00000010){
+    Serial.println("KnopBinnen is ingedrukt!");
+}
+}
+
+void configureInputOutput(){
+  // Configure PCA9554: Set IO0-IO3 as input, IO4-IO7 as output
+  Wire.beginTransmission(0x38);
+  Wire.write(byte(0x03));
+  Wire.write(byte(0x0F));
+  Wire.endTransmission();
+
+  // Set PCA9554 outputs (IO4-IO7)
+  Wire.beginTransmission(0x38);
+  Wire.write(byte(0x01));
+  Wire.write(byte(outputs << 4));
+  Wire.endTransmission();
+  Serial.print("Digital out: ");
+  Serial.println(outputs & 0x0F);
+
+  // Configure MAX11647: Set configuration byte for analog inputs
+  Wire.beginTransmission(0x36);
+  Wire.write(byte(0xA2));
+  Wire.write(byte(0x03));
+  Wire.endTransmission();
+}
+
+  // functies deur
+void deurOpenNaarBinnen(){
+  Serial.println("Opening the door inside");
+    mijnServo.write(180);
+    //keyValueDeur[5] = '1';
+    //keyValueDeur[5] = sprintf(keyValueDeur + 5, "%d", deurisopenNaarBinnen);
+    //delay(15);  //Wait for 0.1s.
+}
+
+void deurDicht(){
+    mijnServo.write(70);
+}
+
+void deurOpenNaarBuiten(){
+  Serial.println("Opening the door outside");
+    mijnServo.write(0);
+}
+
+void sendKeyValue(){
+  if (client.availableForWrite()) {
+      char buffer[1024];
+      memset(buffer, 0, strlen(buffer));
+      sprintf(buffer, "ID: %d KnopBuiten: %d KnopBinnen: %d LEDbuiten: %d LEDbinnen: %d DeurPositie: %d \0", ID, BuitenKnopOutput, BinnenKnopOutput, LEDBuiten, LEDBinnen, DeurPositie);
+      client.write(buffer);
+    }
+}
